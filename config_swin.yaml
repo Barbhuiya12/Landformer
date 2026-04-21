@@ -1,0 +1,175 @@
+# Swin Transformer Surrogate Model Configuration
+# Author: Siddik
+# Description: Clean configuration for Swin Transformer-based hydrological surrogate modeling
+
+# Model Architecture
+model:
+  model_type: 'multi_task_swin'    # Use 'swin' for single-task or 'multi_task_swin' for multi-task
+
+  # Swin Transformer hyperparameters
+  embed_dim: 128                   # Embedding dimension
+  patch_size: 10                   # Temporal patch size
+  depths: [2, 2, 4, 2]            # Number of blocks in each stage
+  num_heads: [4, 8, 8, 8]         # Attention heads per stage
+  window_size: 12                  # Attention window size
+  dropout: 0.4                     # Dropout rate
+  drop_path_rate: 0.3             # Stochastic depth rate
+  sequence_length: 270             # Input sequence length
+
+  # Input dimensions
+  input_dims:
+    n_forcing: 7        # Meteorological variables
+    n_params: 13        # VIC model parameters
+    n_lag_features: 7   # Lag features count
+
+  # Lag configuration
+  enable_lags: true
+  lag_config:
+    forcing:
+      prcp: [1, 2, 3, 7, 30, 90, 180]  # Precipitation lags
+    parameters: {}
+    target: {}
+
+# Data Configuration
+data:
+  # Spatial domain
+  spatial:
+    lat_min: 6
+    lat_max: 38
+    lon_min: 68
+    lon_max: 98
+    step: null
+
+  # Temporal ranges
+  temporal:
+    train_range: ['1990-01-01', '1995-12-31']
+    valid_range: ['1990-01-01', '1995-12-31']
+    test_range: ['1990-01-01', '1995-12-31']
+
+  # File indices
+  file_indices:
+    train_files: [20, 20]
+    valid_files: [0, 0]
+    test_files: [131, 131]
+
+  # Grid sampling
+  grid_sampling:
+    use_exact_counts: true
+    train_grids: 10000
+    validation_grids: 50
+    test_grids: 50
+    selection_strategy: 'random'
+    ensure_no_overlap: true
+
+  # Variables
+  variables:
+    forcing: ['prcp', 'tmax', 'tmin', 'vp', 'swdown', 'lwdown', 'sp']
+    parameters: ['infilt', 'Dsmax', 'Ds', 'Ws', 'd1', 'd2', 'd3',
+                 'Ksat1', 'Ksat2', 'Ksat3', 'expt1', 'expt2', 'expt3']
+    target: ['evap', 'sm', 'Q']
+
+  # Data paths
+  paths:
+    forcing: '/home/siddik/datahub/meteorology/ERA_5_hourly/vic_step/metrology_data_26_feb/vic_surr/forcing.zarr'
+    parameters: '/home/siddik/my_data/storage/Phd_2nd_3rd/Data/INDIA_PARAM_18_FEB/rendom_param_sur/PR_150.nc'
+    target_files:
+      evap: '/home/siddik/my_data/storage/VIC/Final_surr_input/Surr_input/et_150_final.zarr'
+      sm: '/home/siddik/my_data/storage/VIC/Final_surr_input/Surr_input/sm_150_surface_rename_final.zarr'
+      Q: '/home/siddik/my_data/storage/VIC/Final_surr_input/Surr_input/Q_150_final.zarr'
+
+  # Data processing
+  processing:
+    normalization: 'zscore'
+    cache: false
+    cache_size_limit: 5
+
+# Training Configuration
+training:
+  epochs: 40
+  batch_size: 100
+  batch_size_valid: 700
+  learning_rate: 0.001
+  patience: 40
+  epoch_save: 1
+  loss_function: NSE
+
+  # Multi-output settings
+  multi_output:
+    enabled: true
+    loss_weights: [1.0, 1.0, 1.0]
+    individual_metrics: true
+    aggregate_metrics: true
+
+  # Physical constraints
+  physical_constraints:
+    enabled: true
+    mass_conservation:
+      enabled: true
+      weight: 0.05
+      check_negative_fluxes: true
+    bounds:
+      min:
+        et: 0.0
+        q: 0.0
+        sm: 0.0
+
+  # Learning rate scheduler
+  scheduler:
+    enabled: true
+    type: cosine
+    warmup_epochs: 10
+    min_lr: 0.00001
+
+  # Memory optimization
+  memory:
+    num_workers: 12
+    pin_memory: true
+    persistent_workers: false
+    non_blocking: true
+    prefetch_factor: 2
+    drop_last: true
+    timeout: 0
+
+  # Training optimizations
+  optimizations:
+    optimal_chunking: true
+    limit_data_loading: true
+    cache_normalization: true
+    memory_efficient_training: true
+    gradient_clipping: 5.0
+    use_amp: true
+    dask_enabled: false
+    dask_num_workers: 10
+    dask_threads_per_worker: 2
+    dask_memory_limit: '10GB'
+
+# Output Configuration
+output:
+  base_dir: './output'
+  experiment_name: 'swin_surrogate'
+  save_predictions: true
+  save_metrics: true
+  create_plots: true
+
+# Hardware Configuration
+hardware:
+  device: 'cuda:0'  # 'auto', 'cpu', 'cuda', 'cuda:0', etc.
+  compile_model: false
+
+# Logging Configuration
+logging:
+  level: 'INFO'
+  log_file: 'training.log'
+  tensorboard: true
+  log_interval: 1
+
+# Evaluation
+evaluation:
+  cross_validation:
+    enabled: false
+    folds: 5
+
+  grid_generalization:
+    enabled: true
+    test_on_different_grids: true
+    grid_split_seed: 42
