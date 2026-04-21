@@ -361,9 +361,4 @@ Before running a new experiment, update:
 - output experiment name in [config_swin.yaml](config_swin.yaml)
 - loss function and learning rate in [config_swin.yaml](config_swin.yaml)
 
-## Contact
 
-For questions, collaboration, or project discussion:
-
-- Siddik
-- siddikbarbhuiya@gmail.com
