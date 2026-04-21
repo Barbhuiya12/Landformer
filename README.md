@@ -1,4 +1,4 @@
-# Swin Transformer Surrogate Model for Hydrological Prediction
+# LandFormer
 
 Research-grade surrogate modeling pipeline for VIC-style hydrological simulation. This repository trains Swin Transformer models on gridded meteorological forcing, static land-surface parameters, and optional lag features to predict evapotranspiration, soil moisture, and runoff.
 
