@@ -1,6 +1,6 @@
 """
 Memory Optimization Utilities for VIC Surrogate Model
-Author: Siddik
+Author: Siddik Barbhuiya
 Description: Advanced memory optimization and monitoring utilities
 """
 
@@ -19,7 +19,7 @@ from functools import wraps
 class MemoryMonitor:
     """
     Advanced memory monitoring and optimization
-    Author: Siddik
+    Author: Siddik Barbhuiya
     """
     
     def __init__(self):
@@ -145,7 +145,7 @@ def memory_efficient_function(cleanup_after: bool = True):
 class ChunkedProcessor:
     """
     Process large datasets in memory-efficient chunks
-    Author: Siddik
+    Author: Siddik Barbhuiya
     """
     
     def __init__(self, max_memory_mb: float = 1000):
@@ -225,7 +225,7 @@ class ChunkedProcessor:
 class DataLoaderOptimizer:
     """
     Optimize PyTorch DataLoader parameters for memory efficiency
-    Author: Siddik
+    Author: Siddik Barbhuiya
     """
     
     @staticmethod
@@ -278,7 +278,7 @@ class DataLoaderOptimizer:
 class GradientCheckpointing:
     """
     Utilities for gradient checkpointing to save memory during training
-    Author: Siddik
+    Author: Siddik Barbhuiya
     """
     
     @staticmethod

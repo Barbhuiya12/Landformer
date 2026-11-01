@@ -1,0 +1,390 @@
+# Unified Surrogate Model Configuration
+# Author: Siddik
+# Description: Centralized configuration for VIC surrogate model training and testing
+model:
+  model_type: 'lstm'
+  # Swin Transformer specific parameters
+  embed_dim: 128                   # Reduced from 128
+  patch_size: 10
+  depths: [4, 4, 16, 4]           # Reduced from [2, 2, 8, 2]
+  num_heads: [4, 8, 16, 18] 
+  window_size: 14                # Increased context
+  dropout: 0.1                    # Increased from 0.1
+  drop_path_rate: 0.15            # Increased from 0.15
+  
+  # Focal Loss for extreme events (floods/droughts) - Author: Siddik
+  focal_loss:
+    enabled: false                 # Enable focal weighting
+    gamma: 2.0                    # Focus on hard samples (0=standard MSE, 2=recommended)
+  
+  
+  sequence_length: 270
+  
+  # LSTM fallback parameters (not used by Swin)
+  hidden_size: 128  # For other model types
+  num_layers: 2     # For other model types
+  # Input dimensions (will be calculated automatically)
+  input_dims:
+    n_forcing: 7        # prcp, tmax, tmin, vp, swdown, lwdown, sp
+    n_params: 13        # VIC parameters
+    n_lag_features: 0   # Lag features (if enabled)
+  
+  # Flexible Lag Configuration System
+  # OPTIONAL: You can completely disable lags by setting enable_lags: false
+  enable_lags: false
+  
+  # Legacy support: simple lag values for target variables only (DEPRECATED)
+  # lags: [1]  # Use lag_config instead
+  
+  # NEW: Advanced lag configuration - specify lags for any variable type
+  lag_config:
+    # Lag configuration for forcing variables (meteorological inputs)
+    forcing: {}
+      #prcp: [1, 2, 3,4,7,30,180]      # Use 1, 2, and 3-day precipitation lags
+      # tmax: [1]            # Use 1-day temperature lag
+      # tmin: [1]            # Use 1-day minimum temperature lag
+      # vp: []             # No lags for vapor pressure (commented out)
+      # swdown: [1]        # Uncomment to add solar radiation lag
+      # lwdown: []         # No lags for longwave radiation
+      # sp: []             # No lags for surface pressure
+    
+    # Lag configuration for parameter variables (soil/vegetation)
+    parameters: {}
+      # Usually parameters don't need lags since they're static
+      # But you can add them if needed for specific experiments
+      # infilt: [1]        # Uncomment if you want parameter lags
+    
+    # Lag configuration for target variables (model outputs)
+    target: {}
+      # evap: [1]            # Use 1-day evaporation lag
+      # sm: [1, 2]           # Use 1 and 2-day soil moisture lags
+      # Q: [1]               # Use 1-day runoff lag
+  
+  # Spatial Attention Configuration (NEW)
+  # Enables graph attention between spatially neighboring grids
+  spatial_attention:
+    enabled: true                 # Enable/disable spatial attention
+    max_distance: 2.0             # Max distance (degrees) to connect neighbors
+    num_heads: 8                  # Number of attention heads in GAT
+    dropout: 0.1                  # Dropout for spatial attention layer
+    use_residual: true            # Use residual connections
+  
+  # Task-Specific Prediction Heads (NEW)
+  # Configures MLP architecture for each hydrological variable
+  task_heads:
+    evap:
+      hidden_dims: [512]
+      activation: 'gelu'
+      dropout: 0.2
+      output_activation: null  # ET >= 0
+    
+    soil_moisture_total:
+      hidden_dims: [512]
+      activation: 'gelu'
+      dropout: 0.2
+      output_activation: sigmoid   # SM in [0, 1]
+    
+    Q:
+      hidden_dims: [512,128]
+      activation: 'gelu'
+      dropout: 0.2
+      output_activation: null  # Q >= 0
+
+# Data Configuration
+data:
+  # Spatial domain
+  spatial:
+    lat_min: 5
+    lat_max: 40
+    lon_min: 65
+    lon_max: 100
+    # step: null  # Spatial sampling step (null for no subsampling)
+
+    # lat_min: 23
+    # lat_max: 26
+    # lon_min: 74
+    # lon_max: 75
+    step: null  # Spatial sampling step (null for no subsampling)
+  # Temporal ranges
+  temporal:
+    train_range: ['1995-01-01', '1998-12-31']
+    valid_range: ['1996-01-01', '2000-12-31']
+    test_range: ['2001-01-01', '2006-12-31']
+  
+  # File indices for different datasets
+  file_indices:
+    train_files: [70, 100] # Full training file range (101 files)
+    valid_files: [102, 103]  # Validation file range
+    test_files: [106, 106]     # Test file range
+  
+  # Grid sampling - Full control by Siddik
+  grid_sampling:
+    # Option 1: Use exact numbers (preferred)
+    use_exact_counts: true
+    train_grids:  2000   # Exact number of grids for training (sparse)
+    validation_grids: 70 #Exact number of grids for validation (sparse)
+    test_grids: 70       # Exact number of grids for testing (sparse)
+    
+    # Option 2: Use percentages (legacy, used only if use_exact_counts is false)
+    train_percentage: 0.80   # 50% of valid grids for training (sparse)
+    validation_percentage: 0.10  # 30% of valid grids for validation (sparse)
+    test_percentage: 0.10    # 20% of valid grids for testing (sparse)
+    
+    # Grid selection strategy
+    selection_strategy: 'random'  # Options: 'random', 'stratified', 'spatial'
+    ensure_no_overlap: true       # Ensure train/val/test grids don't overlap
+    
+    # Stratification options (used if selection_strategy is 'stratified')
+    stratify_by: 'elev'          # Variable to stratify by
+    n_strata: 5                  # Number of strata to create
+    # NEW FEATURE: Grid exclusion - Skip previously used grids from earlier runs
+    exclude_previous_grids:
+      enabled: false  # Set to true to enable grid exclusion
+
+      # List of paths to pickle files containing previously used grids
+      # You can include grid_locations_train.pkl, grid_locations_valid.pkl, and grid_locations_test.pkl
+      # from previous runs. The system will exclude ALL grids from ALL files listed here.
+      previous_runs:
+        # Example: Exclude all grids from 1st run
+        - 'results/1st_run/grid_locations_test.pkl'
+        - 'results/1st_run/grid_locations_train.pkl'
+        - 'results/1st_run/grid_locations_valid.pkl'
+
+        # Example: You can also exclude from 2nd run if you have one
+        - 'results/2nd_run/grid_locations_test.pkl'
+        - 'results/2nd_run/grid_locations_train.pkl'
+        - 'results/2nd_run/grid_locations_valid.pkl'
+        #3rd run
+        - 'results/3rd_run/grid_locations_test.pkl'
+        - 'results/3rd_run/grid_locations_train.pkl'
+        - 'results/3rd_run/grid_locations_valid.pkl'
+        #4th run
+        - 'results/4th_run/grid_locations_test.pkl'
+        - 'results/4th_run/grid_locations_train.pkl'
+        - 'results/4th_run/grid_locations_valid.pkl'
+        #5th run
+        - 'results/5th_run/grid_locations_test.pkl'
+        - 'results/5th_run/grid_locations_train.pkl'
+        - 'results/5th_run/grid_locations_valid.pkl'
+        #6th run
+        - 'results/6th_run/grid_locations_test.pkl'
+        - 'results/6th_run/grid_locations_train.pkl'
+        - 'results/6th_run/grid_locations_valid.pkl'
+        #7th run
+        - 'results/7th_run/grid_locations_test.pkl'
+        - 'results/7th_run/grid_locations_train.pkl'
+        - 'results/7th_run/grid_locations_valid.pkl'
+        #8th run
+        - 'results/8th_run/grid_locations_test.pkl'
+        - 'results/8th_run/grid_locations_train.pkl'
+        - 'results/8th_run/grid_locations_valid.pkl'
+        #9th run
+        - 'results/9th_run/grid_locations_test.pkl'
+        - 'results/9th_run/grid_locations_train.pkl'
+        - 'results/9th_run/grid_locations_valid.pkl'
+        #10th run
+        - 'results/10th_run/grid_locations_test.pkl'
+        - 'results/10th_run/grid_locations_train.pkl'
+        - 'results/10th_run/grid_locations_valid.pkl'
+        #11th run
+        - 'results/11th_run/grid_locations_test.pkl'
+        - 'results/11th_run/grid_locations_train.pkl'
+        - 'results/11th_run/grid_locations_valid.pkl'
+        #12th run
+        - 'results/12th_run/grid_locations_test.pkl'
+        - 'results/12th_run/grid_locations_train.pkl'
+        - 'results/12th_run/grid_locations_valid.pkl'
+        #13th run
+        - 'results/13th_run/grid_locations_test.pkl'
+        - 'results/13th_run/grid_locations_train.pkl'
+        - 'results/13th_run/grid_locations_valid.pkl'
+        #14th run
+        - 'results/14th_run/grid_locations_test.pkl'
+        - 'results/14th_run/grid_locations_train.pkl'
+        - 'results/14th_run/grid_locations_valid.pkl'
+        #15th run
+        - 'results/15th_run/grid_locations_test.pkl'
+        - 'results/15th_run/grid_locations_train.pkl'
+        - 'results/15th_run/grid_locations_valid.pkl'
+        #16th run
+        - 'results/16th_run/grid_locations_test.pkl'
+        - 'results/16th_run/grid_locations_train.pkl'
+        - 'results/16th_run/grid_locations_valid.pkl'
+        #17th run
+        - 'results/17th_run/grid_locations_test.pkl'
+        - 'results/17th_run/grid_locations_train.pkl'
+        - 'results/17th_run/grid_locations_valid.pkl'
+        #18th run
+        - 'results/18th_run/grid_locations_test.pkl'
+        - 'results/18th_run/grid_locations_train.pkl'
+        - 'results/18th_run/grid_locations_valid.pkl'
+        #19th run
+        - 'results/19th_run/grid_locations_test.pkl'
+        - 'results/19th_run/grid_locations_train.pkl'
+        - 'results/19th_run/grid_locations_valid.pkl'
+        #20th run
+        - 'results/20th_run/grid_locations_test.pkl'
+        - 'results/20th_run/grid_locations_train.pkl'
+        - 'results/20th_run/grid_locations_valid.pkl' 
+        #21th run
+        - 'results/21th_run/grid_locations_test.pkl'
+        - 'results/21th_run/grid_locations_train.pkl'
+        - 'results/21th_run/grid_locations_valid.pkl'
+        #22th run
+        - 'results/22th_run/grid_locations_test.pkl'
+        - 'results/22th_run/grid_locations_train.pkl'
+        - 'results/22th_run/grid_locations_valid.pkl'
+        #23th run
+        - 'results/23th_run/grid_locations_test.pkl'
+        - 'results/23th_run/grid_locations_train.pkl'
+        - 'results/23th_run/grid_locations_valid.pkl'  
+        #24th run
+        - 'results/24th_run/grid_locations_test.pkl'
+        - 'results/24th_run/grid_locations_train.pkl'
+        - 'results/24th_run/grid_locations_valid.pkl'  
+        #25th run
+        - 'results/25th_run/grid_locations_test.pkl'
+        - 'results/25th_run/grid_locations_train.pkl'
+        - 'results/25th_run/grid_locations_valid.pkl'
+  # # Input variables - Dynamic configurationLloss
+  variables:
+    forcing: ['prcp', 'tasmax', 'tasmin', 'vp', 'swdown', 'lwdown', 'sp','wind']
+    parameters: ['infilt', 'Dsmax', 'Ds', 'Ws', 'd1', 'd2', 'd3', 
+                 'Ksat1', 'Ksat2', 'Ksat3', 'expt1', 'expt2', 'expt3']
+    #target: ['evap', 'runoff', 'soil_moisture']  # Dynamic target variables (no baseflow)
+    target: ['evap','soil_moisture_total','Q']
+  
+  paths:
+    forcing: 'data/Surr_forcing/forcing.zarr'
+    parameters: 'data/Surr_forcing/pram_150.nc'
+    # Multi-file target support - paths for individual variable files
+    target_files:
+      evap: 'data/Surr_obs/evap.zarr'
+      soil_moisture_total: 'data/Surr_obs/SM.zarr'  
+      Q: 'data/Surr_obs/Q_real.zarr'
+
+  # Data processing options (optional)
+  # This section is available for future data transforms and caching strategies
+  processing:
+    normalization: 'zscore'  # 'zscore' | 'minmax' (informational; actual logic may live in dataset)
+    cache: false              # If supported by dataset pipeline, cache processed arrays
+    cache_size_limit: 5 # Maximum number of items in the data cache
+
+# Training Configuration
+training:
+  grid_balanced_sampling: true  # Enable balanced sampling across grids
+  spatial_regularization:
+    enabled: true
+    weight: 0.2  # Weight for spatial smoothness loss
+    distance_threshold: 1.0  # Degrees for neighbor definition
+  # Start from pretrained model (uniform soup of 25 models)
+  pretrained_model_path: null
+
+  # ====== FINE-TUNE HEAD OPTION ======
+  # Options: 'none' (default), 'SM', 'Q', 'ET', 'evap', 'sm', 'q', 'et'
+  finetune_head: 'none'            # <-- CHANGE THIS TO TEST DIFFERENT HEADS
+  # 'SM'   = Fine-tune only SM head, freeze Q and ET
+  # 'Q'    = Fine-tune only Q head, freeze SM and ET
+  # 'ET'   = Fine-tune only ET head, freeze SM and Q
+  # 'evap' = Fine-tune only evap head, freeze sm and Q
+  # 'none' = Train all heads normally (default)
+  # ===================================
+  
+  # Resume training options
+  resume_training: false
+  restart_path: null
+  
+  learning_rate: 0.0001  
+  epochs: 200
+
+  # Core training hyperparameters
+  batch_size: 3000              # Train loader batch size1
+  batch_size_valid: 700        # Validation/Test loader batch size (defaults to 256 if omitted)
+
+  patience: 10                 # Early stopping patience (epochs without val improvement)
+  epoch_save: 1               # Save checkpoint every N epochs
+
+  # Primary loss function used for optimization
+  # Options: 'MSE', 'NSE', 'KGE'
+  # loss_function: MSE
+  # loss_function: BIAS_CORRECTED_MSE
+  # loss_kwargs:
+  #   bias_weight: 1.0  # Add explicit bias penalty
+
+  loss_function: KGE
+  loss_kwargs:
+    bias_weight: 4.0  # Penalize bias 2x more
+    var_weight: 2   # Penalize variance errors 1.5x more
+    corr_weight: 1.0
+    
+  # Multi-output specific settings - dynamic based on target variables
+  multi_output:
+    enabled: true
+    loss_weights: [1.0, 1.0, 1.0]  # Weights correspond to order in data.variables.target
+    individual_metrics: true       # Track per-output metrics (displayed in logs)
+    aggregate_metrics: true        # Track aggregated metrics across outputs
+  
+  # Learning rate scheduler
+  scheduler:
+    enabled: true  # Enable learning rate scheduling
+    type: cosine
+    factor: 0.5                  # Halve LR when stuck
+    patience: 5                  # Wait 5 epochs
+    min_lr: 0.000001 # Minimum learning rate
+
+  # Memory optimization
+  memory:
+    num_workers: 16  # Conservative to minimize RAM and worker overhead
+    pin_memory: true
+    persistent_workers: false
+    non_blocking: true  # Used for .to(device, non_blocking=True), NOT DataLoader
+    prefetch_factor: 4  # Conservative prefetch to reduce memory
+    drop_last: true
+    timeout: 0
+    
+  # Data processing optimizations  
+  optimizations:
+    optimal_chunking: false
+    limit_data_loading: false
+    cache_normalization: true
+    memory_efficient_training: true
+    gradient_clipping: 1.0  # Clip gradients for stability
+    use_amp: true  # Automatic mixed precision for speed
+    dask_enabled: true
+    dask_num_workers: 30
+    dask_threads_per_worker: 1
+    dask_memory_limit: '100GB'
+
+# Output Configuration
+output:
+  base_dir: 'data_ext/extended_results'
+  experiment_name: 'lstm_benchmark'
+  save_predictions: true
+  save_metrics: true
+  create_plots: true
+
+# Hardware Configuration
+hardware:
+  device: 'cuda:0' # 'auto', 'cpu', 'cuda', 'cuda:0', etc.
+  compile_model: false  # PyTorch 2.0 model compilation
+
+# Logging Configuration
+logging:
+  level: 'INFO'
+  log_file: 'training.log'
+  tensorboard: true
+  log_interval: 1  # Log every N batches
+  diagnostics_interval: 1  # Generate best/worst grid plots every N epochs (1 = every epoch)
+
+# # Cross-validation and Testing
+evaluation:
+  cross_validation:
+    enabled: true
+    folds: 5
+# Not implemented k fold its just for test
+  
+  # Test on different grid samples
+  grid_generalization:
+    enabled: true
+    test_on_different_grids: true
+    grid_split_seed: 42

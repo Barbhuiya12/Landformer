@@ -1,364 +1,174 @@
 # LandFormer
 
-Research-grade surrogate modeling pipeline for VIC-style hydrological simulation. This repository trains Swin Transformer models on gridded meteorological forcing, static land-surface parameters, and optional lag features to predict evapotranspiration, soil moisture, and runoff.
+Code for **LandFormer: A Swin Transformer Surrogate for Multi-Output Land Surface Modelling at Continental Scale**
+(Siddik Barbhuiya and Vivek Gupta, Indian Institute of Technology Mandi).
 
-Author: Siddik  
-Contact: siddikbarbhuiya@gmail.com
+LandFormer emulates the Variable Infiltration Capacity model (VIC 4.2.d) over the Indian subcontinent at 0.0625°
+(about 6 km). For each grid cell it predicts daily evapotranspiration (ET), total runoff (surface runoff plus baseflow,
+Q) and the volumetric water content of the top VIC soil layer (SM) from a 270-day window of ERA5 meteorological
+forcing and 13 VIC soil parameters (`infilt`, `Dsmax`, `Ds`, `Ws`, `d1`–`d3`, `Ksat1`–`Ksat3`, `expt1`–`expt3`).
 
-## Overview
+The model combines a hierarchical temporal Swin Transformer encoder, an optional spatial graph attention module
+that connects neighbouring cells of the same day and parameter set, and dual-path regression heads for the three
+outputs. It is trained with a multi-task loss based on the Kling–Gupta efficiency. The autoregressive configurations
+additionally receive the outputs of the previous day as inputs.
 
-The default workflow in this repository is built around a multi-task Swin Transformer that learns from spatially gridded hydro-meteorological data. The training pipeline is designed for practical experimentation on large datasets and includes spatially disjoint grid splits, hydrology-specific loss functions, physics-aware penalties, mixed precision training on CUDA, checkpointing, TensorBoard logging, and automatic grid analysis exports.
+## Contents
 
-This codebase is aimed at surrogate modeling for hydrological applications where spatial generalization matters. Instead of relying only on random train/validation/test splits, the trainer can sample different grid cells for each split so model performance is measured on unseen locations.
-
-## What This Repository Provides
-
-- Swin Transformer backbones for single-task and multi-task hydrological regression.
-- Multi-output prediction for `evap`, `sm`, and `Q`.
-- Grid-aware train/validation/test splitting for spatial generalization studies.
-- Hydrology-native loss and evaluation support, including NSE and KGE.
-- Optional physics-informed penalties for non-negative hydrological outputs.
-- CUDA-aware AMP training, gradient clipping, learning-rate scheduling, and memory tuning.
-- Automatic logging, checkpoint saving, configuration backup, normalization-stat export, and grid reports.
-
-## Model and Data Flow
-
-```text
-Forcing sequences (7 variables, 270 time steps)
-        +
-Static VIC parameters (13 variables)
-        +
-Optional lag features (default: precipitation lags)
-        |
-        v
-Patch embedding -> Swin Transformer backbone -> shared feature representation
-        |
-        +--> single-task head
-        |
-        +--> multi-task regression heads for evap, sm, Q
 ```
-
-The default configuration uses `multi_task_swin`, where a shared Swin backbone is followed by separate regression heads for each target variable.
-
-## Repository Layout
-
-```text
-surro_final_swin/
-├── main.py
-├── config_swin.yaml
-├── QUICKSTART.md
-├── requirements.txt
-├── src/
-│   ├── core/
-│   │   ├── config.py
-│   │   └── validator.py
-│   ├── data/
-│   │   ├── dataset.py
-│   │   ├── grid_splitter.py
-│   │   ├── memory_efficient_loader.py
-│   │   ├── multi_input_dataset.py
-│   │   └── utils.py
-│   ├── models/
-│   │   ├── losses.py
-│   │   ├── physics_constraints.py
-│   │   └── swin_transformer.py
-│   ├── training/
-│   │   └── swin_trainer.py
-│   └── utils/
-│       ├── hydro_metrics.py
-│       └── memory.py
-└── README.md
+main.py                       training
+run_inference.py              evaluation on the test configuration (per-cell metrics and daily series)
+landformer_paths.py           data locations
+src/                          model, data pipeline, training and metrics
+  models/swin_transformer.py      temporal Swin Transformer encoder and regression heads
+  models/spatial_attention.py     spatial graph attention module
+  data/                           dataset construction, normalisation, spatial splitting
+  training/                       trainer, losses, grid-aware samplers
+configs/models/               configurations of the models reported in the paper
+configs/evaluation/           test configurations
+experiments/                  ensemble evaluation for the coverage and resolution experiments
+analysis/                     analyses of Sections 4.4-4.8 and 5
+figures/                      figure scripts
 ```
-
-## Data Contract
-
-### Inputs
-
-The default configuration expects three data groups:
-
-1. Forcing data in Zarr format.
-2. Static parameter data in NetCDF format.
-3. Target data in separate Zarr stores for each output variable.
-
-### Default forcing variables
-
-- `prcp`
-- `tmax`
-- `tmin`
-- `vp`
-- `swdown`
-- `lwdown`
-- `sp`
-
-### Default parameter variables
-
-- `infilt`
-- `Dsmax`
-- `Ds`
-- `Ws`
-- `d1`
-- `d2`
-- `d3`
-- `Ksat1`
-- `Ksat2`
-- `Ksat3`
-- `expt1`
-- `expt2`
-- `expt3`
-
-### Default targets
-
-- `evap` for evapotranspiration
-- `sm` for soil moisture
-- `Q` for runoff or discharge
-
-### Sequence and feature settings
-
-- Sequence length: `270`
-- Default lag features: precipitation lags at `1, 2, 3, 7, 30, 90, 180`
-- Input feature groups: forcing + parameters + optional lag features
-- Normalization methods supported by the dataset: `zscore` and `minmax`
-
-Training-set normalization statistics are saved automatically to `train_data_scaler.bin` inside the experiment output directory and reused by validation and test datasets.
 
 ## Installation
 
-Create a Python environment, install a PyTorch build appropriate for your system, and then install the repository requirements.
+Python 3.13 and a CUDA-capable GPU are recommended. Install PyTorch for your CUDA version first
+(https://pytorch.org), then
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-If you are training on GPU, make sure the installed PyTorch build matches your CUDA runtime.
+The models of the paper were trained and evaluated on a single NVIDIA RTX A5000 (24 GB).
 
-## Quick Start
+## Data
 
-### 1. Update the configuration
+The processed dataset is available at https://doi.org/10.5281/zenodo.19667154. It contains the ERA5 forcing on the
+0.0625° grid, the 150 VIC parameter sets and the corresponding VIC outputs. ERA5 is distributed by the Copernicus
+Climate Data Store, the baseline VIC parameters by Schaperow et al. (2021), and VIC 4.2.d at
+https://github.com/UW-Hydro/VIC.
 
-Edit [config_swin.yaml](config_swin.yaml) and set the paths for your local datasets.
+Expected layout (default locations, relative to the repository root):
 
-```yaml
-model:
-  model_type: 'multi_task_swin'
-  sequence_length: 270
-  patch_size: 10
-  window_size: 12
-
-data:
-  paths:
-    forcing: /path/to/forcing.zarr
-    parameters: /path/to/parameters.nc
-    target_files:
-      evap: /path/to/evap.zarr
-      sm: /path/to/sm.zarr
-      Q: /path/to/Q.zarr
-
-training:
-  epochs: 40
-  batch_size: 100
-  loss_function: NSE
-
-hardware:
-  device: cuda:0
+```
+data/Surr_forcing/forcing.zarr        daily forcing (prcp, tasmax, tasmin, vp, swdown, lwdown, sp, wind)
+data/Surr_forcing/pram_150.nc         150 VIC parameter sets
+data/Surr_obs/evap.zarr               VIC evapotranspiration
+data/Surr_obs/SM.zarr                 VIC soil moisture, layer 1
+data/Surr_obs/Q_real.zarr             VIC total runoff
+results/                              training runs (created by main.py)
 ```
 
-At minimum, review these sections before your first run:
+Data in other locations can be used by setting environment variables, which are read by `landformer_paths.py`:
 
-- `data.paths`
-- `data.grid_sampling`
-- `model`
-- `training`
-- `output`
-- `hardware`
+| Variable | Default | Used for |
+|---|---|---|
+| `LANDFORMER_DATA` | `./data` | forcing, parameters and VIC outputs |
+| `LANDFORMER_RESULTS` | `./results` | trained models, normalisation statistics, cell splits |
+| `LANDFORMER_EXT` | `./data_ext` | Köppen–Geiger classes, national boundaries, coarse-resolution forcing |
+| `LANDFORMER_VICFLOW` | `./data_vicflow` | gauge catchments used in Section 4.8 |
 
-### 2. Validate the configuration
+The YAML files refer to `data/...` and `results/` relative to the working directory; run all commands from the
+repository root, or edit the `paths` and `output` sections of the configuration.
+
+## Models
+
+| Configuration (`configs/models/`) | Model | Section |
+|---|---|---|
+| `LandFormer-S_12.5M.yaml`, `LandFormer-B_61.5M.yaml`, `LandFormer-NAR.yaml` | 12.5 M, 61.5 M and 109 M parameters, no lagged inputs | 4.2 |
+| `LandFormer-AR-ET.yaml`, `LandFormer-AR-Q.yaml`, `LandFormer-AR-SM.yaml` | Autoregressive, one lagged output | 4.4 |
+| `LandFormer-AR-All.yaml` | Autoregressive reference configuration | 4.4–4.8 |
+| `LandFormer-AR-All_GAT.yaml` | Reference configuration with spatial graph attention | 4.7 |
+| `LandFormer-AR_1deg.yaml`, `LandFormer-AR_0.5deg.yaml`, `LandFormer-AR_0.25deg.yaml` | Trained at coarser resolution | 4.5 |
+| `LSTM.yaml` | LSTM benchmark | 4.1 |
+
+These are the configurations recorded by the trainer at training time; only machine-specific paths and restart
+settings were removed. The `experiment_name` of each file is the name of its folder in `results/` (for example
+`Large_full_lag` for LandFormer-AR-All and `TEST_HYDRODL_4` for LandFormer-NAR), which the analysis scripts use.
+
+All models are trained on years before 2001; the training and validation periods are set in each configuration
+(`data.temporal`; 1990–1995 and 1996–2000 for the reference configuration). Evaluation uses the independent
+period 2001–2006, on held-out grid cells and a parameter set not used in training.
+
+## Training
 
 ```bash
-python main.py --config config_swin.yaml --validate
+python main.py --config configs/models/LandFormer-AR-All.yaml
 ```
 
-### 3. Inspect the runtime environment
+The checkpoints (`models/best_model.pth`), the normalisation statistics (`train_data_scaler.bin`), the cell splits
+(`grid_locations_*.pkl`) and the training log are written to `results/<experiment_name>/`. To train
+LandFormer-AR-All_GAT on the same cells as LandFormer-AR-All, copy the training and validation cell lists as described
+at the top of its configuration file.
+
+## Evaluation
 
 ```bash
-python main.py --info
+python run_inference.py --config configs/evaluation/test.yml \
+    --checkpoint results/Large_full_lag/models/best_model.pth --output_dir inference_output
 ```
 
-### 4. Start training
+Predictions start on 27 September 2001, the first day with a complete 270-day input window, and end on
+31 December 2006. Outputs, named after the run folder:
+
+```
+inference_output/grid_metrics_<run>.csv          KGE, NSE, correlation, RMSE, bias and variability ratio per cell
+inference_output/time_series/grid_<cell>_<run>.csv   daily predictions (pred_*) and VIC values (target_*)
+```
+
+Run this for `Large_full_lag`, `TEST_HYDRODL`, `TEST_HYDRODL_3`, `TEST_HYDRODL_4` and `Lagged_E/Q/SM` before the
+analyses below. The ensembles of the training-coverage and training-resolution experiments are evaluated with
+`experiments/ensemble_coverage.py` and `experiments/ensemble_resolution.py` (checkpoint lists at the top of each
+script; outputs in `outputs/`).
+
+## Analyses
+
+| Section | Script | Description |
+|---|---|---|
+| 4.4 | `analysis/closed_loop/closed_loop.py` | Closed-loop (free-running) evaluation over the test period; open loop, LandFormer-NAR and persistence on the same cells |
+| 4.4 | `analysis/closed_loop/error_growth.py` | Errors as a function of lead time for runs of 365 days started every 30 days |
+| 4.4, 4.6, 4.7 | `analysis/consistency_persistence_gat.ipynb` | Persistence benchmark; cross-variable consistency (partitioning of precipitation, ET–soil moisture relation, runoff and antecedent wetness, timing, coupling, zero predictions); comparison with and without graph attention |
+| 4.6 | `analysis/closed_loop/precipitation_partitioning.py` | Partitioning of precipitation for VIC, open loop, closed loop and LandFormer-NAR |
+| 4.7 | `analysis/graph_attention/gat_test_inference.py` | Test inference of the model with graph attention |
+| 4.8 | `analysis/flow_regimes/flow_regimes.py` | Skill by flow regime and for the Indus, Ganges and Brahmaputra |
+| 5 | `analysis/spatial_independence/distance_to_training.py` | Test skill against the distance to the nearest training cell |
+| 5 | `analysis/computational_cost/inference_benchmark.py` | Inference throughput and GPU memory |
+
+Order of execution:
 
 ```bash
-python main.py --config config_swin.yaml
+cd analysis/closed_loop
+python closed_loop.py all          # creates the test-set cache and the daily arrays used by the other scripts
+python error_growth.py 30
+python soil_moisture_bias.py
+python precipitation_partitioning.py
+cd ../graph_attention && python gat_test_inference.py ../../results/Large_full_lag_GAT/models/best_model.pth GAT
+cd ../flow_regimes && python flow_regimes.py && python basin_runoff_figure.py
+cd ../spatial_independence && python distance_to_training.py
+cd ../computational_cost && python inference_benchmark.py
 ```
 
-### 5. Resume training if needed
+The notebook `analysis/consistency_persistence_gat.ipynb` is run after these steps from its own folder. Each script
+writes its results next to itself. The basin analysis needs the HydroBASINS v1c levels 3 and 4 for Asia
+(https://www.hydrosheds.org) in `analysis/flow_regimes/hydrobasins/`.
 
-```bash
-python main.py --config config_swin.yaml --resume
-python main.py --config config_swin.yaml --checkpoint output/swin_surrogate/models/model_epoch_10.pth
-```
+## Figures
 
-When `--resume` is used without `--checkpoint`, the main script first looks for `best_model.pth` and then falls back to the latest `model_epoch_*.pth` checkpoint.
+| Figure | Source |
+|---|---|
+| 2, 3 | `figures/architecture_diagrams.py`, `figures/architecture_overview.py` |
+| 4 | `figures/fig04_data/*.py`, then `figures/fig04_study_area.py` (needs Natural Earth 1:10m river centrelines, GMTED2010 tiles and the Köppen–Geiger classes) |
+| 5–8, 10, 11 | `figures/fig05_to_fig11.ipynb` (the LSTM and LandFormer values of Figure 5 are entered in the notebook) |
+| 9 | `figures/fig09_closed_loop.py` |
+| 12 | `analysis/consistency_persistence_gat.ipynb` |
+| 13 | `analysis/flow_regimes/basin_runoff_figure.py` |
 
-## Command Reference
+## Citation
 
-```bash
-python main.py --config config_swin.yaml
-python main.py --config config_swin.yaml --resume
-python main.py --config config_swin.yaml --checkpoint path/to/model.pth
-python main.py --config config_swin.yaml --validate
-python main.py --info
-```
+Barbhuiya, S., and Gupta, V. LandFormer: A Swin Transformer Surrogate for Multi-Output Land Surface Modelling at
+Continental Scale. The full reference will be added on publication.
 
-## Configuration Guide
+## Contact
 
-### Model
-
-Key model parameters live under `model` in [config_swin.yaml](config_swin.yaml):
-
-- `model_type`: `swin` or `multi_task_swin`
-- `embed_dim`: embedding width for the Swin backbone
-- `patch_size`: temporal patch size for 1D patch embedding
-- `depths`: number of blocks per Swin stage
-- `num_heads`: attention heads per stage
-- `window_size`: local attention window size
-- `dropout` and `drop_path_rate`: regularization controls
-- `sequence_length`: input time-window length
-- `enable_lags` and `lag_config`: lag feature generation
-
-### Data
-
-Important data controls:
-
-- `data.spatial`: geographic subsetting bounds
-- `data.temporal`: date ranges for train, valid, and test
-- `data.file_indices`: scenario index ranges per split
-- `data.grid_sampling`: exact grid counts or percentage-driven sampling
-- `data.variables`: forcing, parameter, and target variable lists
-- `data.processing.normalization`: `zscore` or `minmax`
-
-### Training
-
-Important training controls:
-
-- `epochs`, `batch_size`, `batch_size_valid`, `learning_rate`
-- `loss_function`: `NSE`, `KGE`, `MSE`, or `MAE`
-- `patience`: early stopping threshold
-- `epoch_save`: periodic checkpoint frequency
-- `multi_output.loss_weights`: target weighting for multi-task training
-- `physical_constraints`: optional non-negative output penalty
-- `scheduler`: cosine scheduling with warmup support
-- `optimizations.use_amp`: mixed precision training on CUDA
-- `optimizations.gradient_clipping`: gradient clipping threshold
-- `memory`: DataLoader worker and transfer settings
-
-### Output and logging
-
-Important output controls:
-
-- `output.base_dir`
-- `output.experiment_name`
-- `output.create_plots`
-- `logging.tensorboard`
-- `logging.level`
-- `logging.log_file`
-
-## Training Workflow
-
-The runtime flow in [main.py](main.py) and [src/training/swin_trainer.py](src/training/swin_trainer.py) is:
-
-1. Load YAML configuration and validate it.
-2. Set reproducible seeds from `evaluation.grid_split_seed`.
-3. Create grid-aware train, validation, and optional test splits.
-4. Build PyTorch datasets and DataLoaders.
-5. Initialize the selected Swin model, loss function, optimizer, and scheduler.
-6. Train and validate for each epoch while tracking hydrological metrics.
-7. Save the best model and periodic checkpoints.
-8. Write training history and grid-location analysis outputs.
-9. Run final test evaluation when a test split is configured.
-
-## Metrics and Constraints
-
-### Supported losses and metrics
-
-The repository includes hydrology-aware losses and metrics in [src/models/losses.py](src/models/losses.py) and [src/utils/hydro_metrics.py](src/utils/hydro_metrics.py):
-
-- Nash-Sutcliffe Efficiency (NSE)
-- Kling-Gupta Efficiency (KGE)
-- Mean Squared Error (MSE)
-- Mean Absolute Error (MAE)
-- Pearson correlation
-- Percent bias
-- RMSE
-
-### Physics-informed constraint behavior
-
-The current physical-constraint implementation in [src/models/physics_constraints.py](src/models/physics_constraints.py) is centered on non-negative output enforcement through a mass-conservation-style penalty. In practice, this means the default documented physical constraint is a penalty on negative predicted values for hydrological outputs.
-
-## Output Structure
-
-By default, experiments are written to:
-
-```text
-output/swin_surrogate/
-```
-
-A typical run creates files like these:
-
-```text
-output/swin_surrogate/
-├── config_backup.yaml
-├── grid_splits.pkl
-├── grid_locations_train.csv
-├── grid_locations_train.nc
-├── grid_locations_train.pkl
-├── grid_locations_valid.csv
-├── grid_locations_valid.nc
-├── grid_locations_valid.pkl
-├── grid_locations_test.csv         # when test data is configured
-├── grid_locations_test.nc          # when test data is configured
-├── grid_locations_test.pkl         # when test data is configured
-├── grid_analysis_report.txt        # when grid analysis succeeds
-├── grid_summary_table.csv          # when grid analysis succeeds
-├── train_data_scaler.bin
-├── training.log
-├── training_history.json
-├── models/
-│   ├── best_model.pth
-│   └── model_epoch_*.pth
-├── tensorboard/
-└── figures/
-    ├── selected_grids_train.png
-    ├── selected_grids_valid.png
-    ├── selected_grids_test.png
-    └── additional spatial analysis plots
-```
-
-The trainer also attempts to create consolidated grid-analysis figures and summary tables after training completes.
-
-To inspect TensorBoard logs:
-
-```bash
-tensorboard --logdir output/swin_surrogate/tensorboard
-```
-
-## Practical Notes
-
-- AMP is enabled only when `optimizations.use_amp: true` and CUDA is available.
-- The default config uses exact grid counts with non-overlapping train, validation, and test selections.
-- Validation and test normalization reuse the scaler generated during training.
-- Early stopping is controlled by `training.patience`.
-- Checkpoint frequency is controlled by `training.epoch_save`.
-
-## Recommended First Edits
-
-Before running a new experiment, update:
-
-- dataset paths in [config_swin.yaml](config_swin.yaml)
-- device selection in [config_swin.yaml](config_swin.yaml)
-- grid counts in [config_swin.yaml](config_swin.yaml)
-- output experiment name in [config_swin.yaml](config_swin.yaml)
-- loss function and learning rate in [config_swin.yaml](config_swin.yaml)
-
-
+Siddik Barbhuiya, School of Civil and Environmental Engineering, Indian Institute of Technology Mandi.

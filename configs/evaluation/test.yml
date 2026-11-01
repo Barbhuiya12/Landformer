@@ -1,0 +1,231 @@
+# Unified Surrogate Model Configuration
+# Author: Siddik
+# Description: Centralized configuration for VIC surrogate model training and testing
+
+model:
+  model_type: 'multi_task_swin' # 'lstm'
+  
+  # Swin Transformer specific parameters
+  embed_dim: 128
+  patch_size: 10
+  depths: [4, 4, 16, 4]
+  num_heads: [4, 8, 16, 18]
+  window_size: 14
+  dropout: 0.1
+  drop_path_rate: 0.15
+  
+  # Architecture mode
+  use_hierarchical: true
+  
+  # Focal Loss (Author: Siddik)
+  focal_loss:
+    enabled: false
+    gamma: 2.0
+  
+  sequence_length: 270
+  
+  # LSTM fallback
+  hidden_size: 128
+  num_layers: 2
+  
+  # Input dimensions
+  input_dims:
+    n_forcing: 8        # prcp, tasmax, tasmin, vp, swdown, lwdown, sp, wind
+    n_params: 13        # VIC parameters
+    n_lag_features: 0
+  
+  # Flexible Lag Configuration System
+  enable_lags: false
+  
+  # Advanced lag configuration
+  lag_config:
+    forcing: {}
+    parameters: {}
+    target:
+      evap: [1]
+  
+  # Spatial Attention Configuration
+  spatial_attention:
+    enabled: true
+    max_distance: 2.0
+    num_heads: 8
+    dropout: 0.1
+    use_residual: true
+  
+  # Task-Specific Prediction Heads
+  task_heads:
+    evap:
+      hidden_dims: [512]
+      activation: 'gelu'
+      dropout: 0.2
+      output_activation: null  # ET >= 0
+    
+    soil_moisture_total:
+      hidden_dims: [512]
+      activation: 'gelu'
+      dropout: 0.2
+      output_activation: sigmoid   # SM in [0, 1]
+    
+    Q:
+      hidden_dims: [512, 128]
+      activation: 'gelu'
+      dropout: 0.2
+      output_activation: null  # Q >= 0
+
+# Data Configuration
+data:
+  # Spatial domain
+  spatial:
+    lat_min: 6
+    lat_max: 38
+    lon_min: 68
+    lon_max: 98
+    step: null
+  
+  # Temporal ranges
+  temporal:
+    train_range: ['1990-01-01', '1995-12-31']
+    valid_range: ['1996-01-01', '2000-12-31']
+    test_range: ['2001-01-01', '2006-12-31']
+  
+  # File indices for different datasets
+  file_indices:
+    train_files: [1, 1]
+    valid_files: [101, 101]
+    test_files: [130, 130]
+  
+  # Grid sampling
+  grid_sampling:
+    use_exact_counts: true
+    train_grids: 1000
+    validation_grids: 70
+    test_grids: 5000
+    
+    train_percentage: 0.10
+    validation_percentage: 0.10
+    test_percentage: 0.90
+    
+    selection_strategy: 'random'
+    ensure_no_overlap: true
+    stratify_by: 'elev'
+    n_strata: 5
+    
+    # Grid exclusion
+    exclude_previous_grids:
+      enabled: true
+      previous_runs:
+  # Variables
+  variables:
+    forcing: ['prcp', 'tasmax', 'tasmin', 'vp', 'swdown', 'lwdown', 'sp', 'wind']
+    parameters: ['infilt', 'Dsmax', 'Ds', 'Ws', 'd1', 'd2', 'd3', 
+                 'Ksat1', 'Ksat2', 'Ksat3', 'expt1', 'expt2', 'expt3']
+    target: ['evap', 'soil_moisture_total', 'Q']
+  
+  # Data paths
+  paths:
+    forcing: 'data/Surr_forcing/forcing.zarr'
+    parameters: 'data/Surr_forcing/pram_150.nc'
+    target_files:
+      evap: 'data/Surr_obs/evap.zarr'
+      soil_moisture_total: 'data/Surr_obs/SM.zarr'  
+      Q: 'data/Surr_obs/Q_real.zarr'
+
+  processing:
+    normalization: 'zscore'
+    cache: false
+    cache_size_limit: 5
+
+# Training Configuration
+training:
+  grid_balanced_sampling: true
+  spatial_regularization:
+    enabled: true
+    weight: 0.2
+    distance_threshold: 1.0
+  pretrained_model_path: null
+
+  finetune_head: 'none'
+  
+  resume_training: false
+  restart_path: null
+  
+  learning_rate: 0.0001
+  epochs: 200
+
+  batch_size: 2000
+  batch_size_valid: 700
+
+  patience: 10
+  epoch_save: 1
+
+  loss_function: KGE
+  loss_kwargs:
+    bias_weight: 4.0
+    var_weight: 2
+    corr_weight: 1.0
+    
+  multi_output:
+    enabled: true
+    loss_weights: [1.0, 1.0, 1.0]
+    individual_metrics: true
+    aggregate_metrics: true
+  
+  scheduler:
+    enabled: true
+    type: cosine
+    factor: 0.5
+    patience: 5
+    min_lr: 0.000001
+
+  memory:
+    num_workers: 16
+    pin_memory: true
+    persistent_workers: false
+    non_blocking: true
+    prefetch_factor: 4
+    drop_last: true
+    timeout: 0
+    
+  optimizations:
+    optimal_chunking: false
+    limit_data_loading: false
+    cache_normalization: true
+    memory_efficient_training: true
+    gradient_clipping: 1.0
+    use_amp: true
+    dask_enabled: true
+    dask_num_workers: 30
+    dask_threads_per_worker: 1
+    dask_memory_limit: '100GB'
+
+# Output Configuration
+output:
+  base_dir: 'results'
+  experiment_name: 'Test_0.90_inf'
+  save_predictions: true
+  save_metrics: true
+  create_plots: true
+
+# Hardware Configuration
+hardware:
+  device: 'cuda:0'
+  compile_model: false
+
+# Logging Configuration
+logging:
+  level: 'INFO'
+  log_file: 'training.log'
+  tensorboard: true
+  log_interval: 1
+  diagnostics_interval: 1
+
+# Evaluation Configuration
+evaluation:
+  cross_validation:
+    enabled: true
+    folds: 5 # Not implemented, just config placeholder
+  
+  grid_generalization:
+    enabled: true
+    test_on_different_grids: true
+    grid_split_seed: 42

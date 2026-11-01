@@ -1,0 +1,134 @@
+data:
+  file_indices:
+    test_files:
+    - 106
+    - 106
+    train_files:
+    - 1
+    - 10
+    valid_files:
+    - 101
+    - 101
+  grid_sampling:
+    ensure_no_overlap: true
+    exclude_previous_grids:
+      enabled: false
+      previous_runs:
+    n_strata: 5
+    selection_strategy: random
+    stratify_by: elev
+    test_grids: 70
+    test_percentage: 0.1
+    train_grids: 1000
+    train_percentage: 0.8
+    use_exact_counts: true
+    validation_grids: 70
+    validation_percentage: 0.1
+  paths:
+    forcing: data/Surr_forcing/forcing.zarr
+    parameters: data/Surr_forcing/pram_150.nc
+    target_files:
+      Q: data/Surr_obs/Q_real.zarr
+      evap: data/Surr_obs/evap.zarr
+      soil_moisture_total: data/Surr_obs/SM.zarr
+  spatial:
+    lat_max: 38
+    lat_min: 6
+    lon_max: 98
+    lon_min: 68
+    step: null
+  temporal:
+    test_range:
+    - '2001-01-01'
+    - '2006-12-31'
+    train_range:
+    - '1990-01-01'
+    - '1995-12-31'
+    valid_range:
+    - '1996-01-01'
+    - '2000-12-31'
+  variables:
+    forcing:
+    - prcp
+    - tasmax
+    - tasmin
+    - vp
+    - swdown
+    - lwdown
+    - sp
+    - wind
+    parameters:
+    - infilt
+    - Dsmax
+    - Ds
+    - Ws
+    - d1
+    - d2
+    - d3
+    - Ksat1
+    - Ksat2
+    - Ksat3
+    - expt1
+    - expt2
+    - expt3
+    target:
+    - evap
+    - soil_moisture_total
+    - Q
+evaluation:
+  cross_validation:
+    enabled: true
+    folds: 5
+  grid_generalization:
+    enabled: true
+    grid_split_seed: 42
+    test_on_different_grids: true
+hardware:
+  compile_model: false
+  device: cuda:1
+logging:
+  diagnostics_interval: 1
+  level: INFO
+  log_file: training.log
+  log_interval: 1
+  tensorboard: true
+model:
+  dropout: 0.1
+  hidden_size: 128
+  lags: null
+  sequence_length: 270
+output:
+  base_dir: results
+  create_plots: true
+  experiment_name: Large_full_lag
+  save_metrics: true
+  save_predictions: true
+training:
+  batch_size: 3000
+  batch_size_valid: 700
+  epoch_save: 1
+  epochs: 200
+  finetune_head: none
+  learning_rate: 0.001
+  loss_function: KGE
+  memory:
+    drop_last: true
+    non_blocking: true
+    num_workers: 8
+    persistent_workers: false
+    pin_memory: true
+    prefetch_factor: 4
+    timeout: 0
+  multi_output:
+    aggregate_metrics: true
+    enabled: true
+    individual_metrics: true
+    loss_weights:
+    - 1.0
+    - 1.0
+    - 1.0
+  patience: 10
+  physical_constraints: null
+  pretrained_model_path: null
+  restart_path: null
+  resume_training: false

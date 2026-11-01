@@ -1,6 +1,6 @@
 """
 Unified Configuration Loader for VIC Surrogate Model
-Author: Siddik
+Author: Siddik Barbhuiya
 Description: Loads and manages configuration from YAML file
 
 This module implements a unified configuration system for the VIC surrogate model
@@ -88,19 +88,29 @@ class ModelConfig:
     # TCN parameters (with defaults)
     hidden_channels: List[int] = None  # Will default to [64, 128, 128, 64]
     kernel_size: int = 3
+    
+    # Focal Loss configuration (Author: Siddik Barbhuiya)
+    focal_loss: Dict[str, Any] = None
+
+    # Spatial graph attention (GAT) after the Swin encoder; multi_task_swin only.
+    # Keys: enabled (bool), max_distance (deg), num_heads (int), dropout (float)
+    spatial_attention: Dict[str, Any] = None
 
 
 @dataclass
 class DataConfig:
     """Data configuration
-    
+
     Configuration for data loading, processing, and sampling.
-    
+
     Attributes:
         spatial (Dict[str, Any]): Spatial domain boundaries and sampling
         temporal (Dict[str, List[str]]): Time ranges for train/val/test
         file_indices (Dict[str, List[int]]): File ranges for different scenarios
         grid_sampling (Dict[str, Any]): Grid cell sampling strategy and parameters
+            - exclude_previous_grids (Dict[str, Any]): Configuration for excluding grids from previous runs
+                - enabled (bool): Whether to enable grid exclusion
+                - previous_runs (List[str]): List of paths to grid_locations_*.pkl files from previous runs
         variables (Dict[str, List[str]]): Input/output variable names
         paths (Dict[str, str]): File paths for data sources
         processing (Dict[str, Any]): Data processing options
@@ -119,9 +129,9 @@ class DataConfig:
 @dataclass
 class TrainingConfig:
     """Training configuration
-    
+
     Configuration for model training hyperparameters and optimization.
-    
+
     Attributes:
         epochs (int): Maximum number of training epochs
         batch_size (int): Training batch size
@@ -136,6 +146,15 @@ class TrainingConfig:
         physical_constraints (Dict[str, Any]): Physics-informed constraints
         scheduler (Dict[str, Any]): Learning rate scheduler settings
         multi_task (Dict[str, Any]): Multi-task specific training settings
+        finetune_head (str): Head to fine-tune for multi-task models. Allowed values:
+            - "none" (default): Train all heads normally
+            - "SM": Fine-tune only SM head, freeze Q and ET heads
+            - "Q": Fine-tune only Q head, freeze SM and ET heads
+            - "ET": Fine-tune only ET head, freeze SM and Q heads
+            - "evap": Fine-tune only evap head, freeze sm and Q heads
+        pretrained_model_path (str): Path to pretrained model checkpoint for fine-tuning.
+            If provided, loads model weights (but not optimizer state) before training.
+            Use with finetune_head to train specific heads on new data.
     """
     epochs: int
     batch_size: int
@@ -150,6 +169,10 @@ class TrainingConfig:
     physical_constraints: Dict[str, Any] = None
     scheduler: Dict[str, Any] = None
     multi_task: Dict[str, Any] = None  # Multi-task configuration
+    finetune_head: str = "none"  # Fine-tune specific head: "none", "SM", "Q", "ET", "evap"
+    pretrained_model_path: str = None  # Path to pretrained model for fine-tuning
+    resume_training: bool = False  # Whether to resume training from a checkpoint
+    restart_path: str = None  # Specific checkpoint path to resume from
 
 @dataclass
 class PhysicalConstraintsConfig:
@@ -384,7 +407,13 @@ def load_config(config_path: str) -> UnifiedConfig:
         
         # TCN parameters
         hidden_channels=model_dict.get('hidden_channels', [64, 128, 128, 64]),
-        kernel_size=model_dict.get('kernel_size', 3)
+        kernel_size=model_dict.get('kernel_size', 3),
+        
+        # Focal Loss configuration
+        focal_loss=model_dict.get('focal_loss', None),
+
+        # Spatial graph attention (previously dropped here, so it was never applied)
+        spatial_attention=model_dict.get('spatial_attention', None)
     )
     
     data_config = DataConfig(**config_dict['data'])
@@ -404,7 +433,11 @@ def load_config(config_path: str) -> UnifiedConfig:
         multi_output=training_dict.get('multi_output', None),
         physical_constraints=training_dict.get('physical_constraints', None),
         scheduler=training_dict.get('scheduler', None),
-        multi_task=training_dict.get('multi_task', None)
+        multi_task=training_dict.get('multi_task', None),
+        finetune_head=training_dict.get('finetune_head', 'none'),
+        pretrained_model_path=training_dict.get('pretrained_model_path', None),
+        resume_training=training_dict.get('resume_training', False),
+        restart_path=training_dict.get('restart_path', None)
     )
     
     # Handle optional output config fields
@@ -465,7 +498,11 @@ def save_config(config: UnifiedConfig, save_path: str):
             'loss_function': config.training.loss_function,
             'memory': config.training.memory,
             'multi_output': config.training.multi_output,
-            'physical_constraints': config.training.physical_constraints
+            'physical_constraints': config.training.physical_constraints,
+            'finetune_head': config.training.finetune_head,
+            'pretrained_model_path': config.training.pretrained_model_path,
+            'resume_training': config.training.resume_training,
+            'restart_path': config.training.restart_path
         },
         'output': {
             'base_dir': config.output.base_dir,

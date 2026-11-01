@@ -1,6 +1,6 @@
 """
 Configuration Validator for Unified VIC Surrogate Model
-Author: Siddik
+Author: Siddik Barbhuiya
 Description: Comprehensive validation of configuration parameters
 """
 
@@ -16,7 +16,7 @@ from .config import UnifiedConfig
 class ConfigValidator:
     """
     Comprehensive configuration validator
-    Author: Siddik
+    Author: Siddik Barbhuiya
     """
     
     def __init__(self, config: UnifiedConfig):
@@ -211,7 +211,7 @@ class ConfigValidator:
             self.warnings.append("Training patience is very low (< 5)")
         
         # Loss function validation
-        valid_loss_functions = ['MSE', 'NSE', 'KGE', 'MAE', 'MULTI_NSE', 'MULTI_KGE']
+        valid_loss_functions = ['MSE', 'NSE', 'KGE', 'MAE', 'MULTI_NSE', 'MULTI_KGE', 'BIAS_NSE', 'BIAS_CORRECTED_NSE', 'GRID_NSE', 'GRID_KGE', 'BIAS_CORRECTED_MSE']
         if training.loss_function.upper() not in valid_loss_functions:
             self.errors.append(f"Training loss_function must be one of {valid_loss_functions}")
         
@@ -224,7 +224,7 @@ class ConfigValidator:
                 self.warnings.append("Memory num_workers is very high (> 16), may cause overhead")
 
         # Mixed precision validation
-        if self.config.training.optimizations.get('use_amp', False):
+        if self.config.training.optimizations and self.config.training.optimizations.get('use_amp', False):
             if not torch.cuda.is_available():
                 self.warnings.append("Mixed precision (use_amp) enabled but CUDA not available")
     
@@ -331,16 +331,16 @@ class ConfigValidator:
         summary_lines.append("=" * 60)
         
         if not self.errors and not self.warnings:
-            summary_lines.append("✅ Configuration is valid!")
+            summary_lines.append("Configuration is valid!")
         else:
             if self.errors:
-                summary_lines.append(f"❌ {len(self.errors)} ERRORS found:")
+                summary_lines.append(f"{len(self.errors)} ERRORS found:")
                 for i, error in enumerate(self.errors, 1):
                     summary_lines.append(f"   {i}. {error}")
                 summary_lines.append("")
             
             if self.warnings:
-                summary_lines.append(f"⚠️  {len(self.warnings)} WARNINGS:")
+                summary_lines.append(f" {len(self.warnings)} WARNINGS:")
                 for i, warning in enumerate(self.warnings, 1):
                     summary_lines.append(f"   {i}. {warning}")
         
